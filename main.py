@@ -5,7 +5,9 @@ import unicodedata
 import mysql.connector
 import xlrd
 import easygui
-from datetime import date
+import plotly.offline as offline
+import plotly.graph_objs as go
+from datetime import date, datetime
 
 
 def populate_positive():
@@ -292,12 +294,132 @@ def proc():
     cursor.close()
 
 
-def analyze():
+def frequency():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
-    # Get all tweets query
-    query = "SELECT * FROM tweet_data"
+
+    choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
+
+    query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
     cursor.execute(query)
+    dates = list()
+    for row in cursor:
+        dates.append(row[0])
+    cursor.close()
+    x = list()
+    y = list()
+    y1 = list()
+    for date1 in dates:
+        x.append(date1)
+        cursor = cnx.cursor(buffered=True)
+        query = "SELECT positive, negative FROM tweet_data WHERE categories LIKE '%" + choice \
+                + "%' AND date = \'" + date1.strftime("%Y-%m-%d %H:%M:%S") + "\'"
+        cursor.execute(query)
+        positive = 0
+        negative = 0
+        rowcount = 0
+        for row in cursor:
+            positive += row[0]
+            negative += row[1]
+            rowcount += 1
+        if cursor.rowcount != 0:
+            y.append((positive / float(cursor.rowcount)))
+            y1.append(negative / float(cursor.rowcount))
+        else:
+            y.append(0)
+            y1.append(0)
+        cursor.close()
+    trace0 = go.Scatter(
+        x=x,
+        y=y,
+        name='Positive',
+        line=dict(
+            color=('rgb(205,12,24)'),
+            width=4
+        )
+    )
+    trace1 = go.Scatter(
+        x=x,
+        y=y1,
+        name='Negatice',
+        line=dict(
+            color=('rgb(22,96,167)'),
+            width=4
+        )
+    )
+    data = [trace0, trace1]
+
+    offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
+
+
+def dailyamount():
+    cnx = db_connection()
+    cursor = cnx.cursor(buffered=True)
+    choices = ["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"]
+
+    query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
+    cursor.execute(query)
+    dates = list()
+    for row in cursor:
+        dates.append(row[0])
+    cursor.close()
+    x = list()
+    y = [list(), list(), list(), list()]
+    y1 = [list(), list(), list(), list()]
+    for date1 in dates:
+        x.append(date1)
+        cursor = cnx.cursor(buffered=True)
+        query = "SELECT positive, negative, categories FROM tweet_data WHERE date = \'" + date1.strftime(
+            "%Y-%m-%d %H:%M:%S") + "\'"
+        cursor.execute(query)
+        for choice in choices:
+            i = choices.index(choice)
+            y[i].append(0)
+            y1[i].append(0)
+        for row in cursor:
+            positive = False
+            if row[0] >= row[1]:
+                positive = True
+            for choice in choices:
+                if choice in row[2]:
+                    i = choices.index(choice)
+                    if positive:
+                        y[i][len(y[i]) - 1] += 1
+                    else:
+                        y1[i][len(y1[i]) - 1] += 1
+        cursor.close()
+
+    data = list()
+    i = 0
+    for positive in y:
+        data.append(go.Bar(
+            x=x,
+            y=positive,
+            name='Positive-' + choices[i]))
+        i += 1
+    i = 0
+    for negative in y1:
+        data.append(go.Bar(
+            x=x,
+            y=negative,
+            name='Negative-' + choices[i]))
+        i += 1
+
+    offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
+
+
+def analyze():
+    while True:
+        choice = easygui.buttonbox(
+            "There are several analysis options\n" +
+            "1: Frequency: choose a category to display frequency for each date",
+            choices=("Frequency", "Amount", "back"))
+        if choice is "Frequency":
+            frequency()
+        elif choice is "Amount":
+            dailyamount()
+        else:
+            return
 
 
 def operation_choice():
