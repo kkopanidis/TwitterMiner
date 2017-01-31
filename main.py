@@ -4,10 +4,15 @@ import tweepy
 import unicodedata
 import mysql.connector
 import xlrd
+import numpy
 import easygui
 import plotly.offline as offline
 import plotly.graph_objs as go
 from datetime import date, datetime
+
+
+def daydiff(date1, date2):
+    return (date2 - date1).days
 
 
 def populate_positive():
@@ -220,18 +225,21 @@ def proc():
     # Delete query
     delete_tweet = "DELETE FROM tweet_data WHERE id = %(_id)s"
     print "Retrieving data..."
-    print "Removing duplicates"
+    print "Removing duplicates, checking for data that should be processed"
     found = 0
     tweets = list()
     remove = list()
-    # Search  for conflicting hashtags in tweets
+    unpro = False
     for row in cursor:
+        if row[4] is None:
+            unpro = True
         if row[1] in tweets:
             found += 1
             remove.insert(0, row[0])
         else:
             tweets.insert(0, row[1])
-
+    if not unpro:
+        return
     cursor.close()
     cursor = cnx.cursor(buffered=True)
 
@@ -408,16 +416,102 @@ def dailyamount():
     offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
 
 
+def weekly():
+    cnx = db_connection()
+    cursor = cnx.cursor(buffered=True)
+    choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
+    query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
+    cursor.execute(query)
+    dates = list()
+    for row in cursor:
+        dates.append(row[0])
+    cursor.close()
+    x = list()
+    y = [list(), list(), list(), list()]
+    startdate = ''
+    total = 0
+    for yi in y:
+        yi.append(0)
+    positives = list()
+    negatives = list()
+    for date1 in dates:
+        if startdate == '':
+            startdate = date1
+        cursor = cnx.cursor(buffered=True)
+        query = "SELECT positive, negative, categories FROM tweet_data WHERE date = \'" + date1.strftime(
+            "%Y-%m-%d %H:%M:%S") + "\'"
+        cursor.execute(query)
+
+        if daydiff(startdate, date1) >= 7:
+            x.append(
+                str(startdate.day) + ' - ' + str(date1.day) + "/" + str(date1.month) + "/" + str(
+                    date1.year) + "\nTotal Tweets: " + str(total))
+            startdate = date1
+            total = 0
+
+            y[0][len(y[0]) - 1] = numpy.mean(positives)
+            y[1][len(y[0]) - 1] = numpy.mean(negatives)
+            y[2][len(y[1]) - 1] = numpy.std(positives)
+            y[3][len(y[1]) - 1] = numpy.std(negatives)
+
+            positives = list()
+            negatives = list()
+            for yi in y:
+                yi.append(0)
+        positives.append(0)
+        negatives.append(0)
+        for row in cursor:
+            total += 1
+            positive = False
+            if row[0] >= row[1]:
+                positive = True
+            if choice in row[2]:
+                if positive:
+                    positives[len(positives) - 1] += 1
+
+                else:
+                    negatives[len(negatives) - 1] += 1
+        cursor.close()
+
+    if total != 0:
+        y[0].pop(len(y[0]) - 1)
+        y[1].pop(len(y[0]) - 1)
+        y[2].pop(len(y[0]) - 1)
+        y[3].pop(len(y[0]) - 1)
+
+    data = list()
+    data.append(go.Bar(
+        x=x,
+        y=y[0],
+        name='Positive-Mean'))
+    data.append(go.Bar(
+        x=x,
+        y=y[1],
+        name='Negative-Mean'))
+    data.append(go.Bar(
+        x=x,
+        y=y[2],
+        name='Positive Deviation'))
+    data.append(go.Bar(
+        x=x,
+        y=y[3],
+        name='Negative Deviation'))
+
+    offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
+
+
 def analyze():
     while True:
         choice = easygui.buttonbox(
             "There are several analysis options\n" +
             "1: Frequency: choose a category to display frequency for each date",
-            choices=("Frequency", "Amount", "back"))
+            choices=("Frequency", "Amount", "Weekly", "back"))
         if choice is "Frequency":
             frequency()
         elif choice is "Amount":
             dailyamount()
+        elif choice is "Weekly":
+            weekly()
         else:
             return
 
@@ -436,6 +530,7 @@ def operation_choice():
         elif choice is "Process":
             proc()
         elif choice is "Analyze":
+            proc()
             analyze()
         else:
             print "exiting..."
