@@ -542,7 +542,7 @@ def svd():
     X = cv.fit_transform(rows)
     U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
     print numpy.dot(U, numpy.dot(numpy.diag(s), Vh))
-    norm = numpy.linalg.norm(U)
+    norm = numpy.linalg.norm(U, axis=0)
     print NearestNeighbors(n_neighbors=5, algorithm='ball_tree').fit(norm).kneighbors(norm)
 
     # data = list()
