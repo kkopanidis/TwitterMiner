@@ -10,6 +10,7 @@ import plotly.offline as offline
 import plotly.graph_objs as go
 from datetime import date, datetime
 
+from sklearn import preprocessing
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.neighbors import NearestNeighbors
 
@@ -526,6 +527,13 @@ def weekly():
     offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
+def low_rank_approx(u, s, v, r=300):
+    Ar = numpy.zeros((len(u), len(v)))
+    for i in xrange(r):
+        Ar += s[i] * numpy.outer(u.T[i], v[i])
+    return Ar
+
+
 def svd():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
@@ -534,23 +542,36 @@ def svd():
     rows = list()
     i = 0
     for row in cursor:
-        if i > 1000:
-            break
+        # if i > 1000:
+        #     break
         rows.append(row[0])
         i += 1
-    cv = CountVectorizer(min_df=2)
+    cv = CountVectorizer(min_df=2, max_df=len(rows) * 4, lowercase=False)
     X = cv.fit_transform(rows)
     U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
-    print numpy.dot(U, numpy.dot(numpy.diag(s), Vh))
-    norm = numpy.linalg.norm(U, axis=0)
-    print NearestNeighbors(n_neighbors=5, algorithm='ball_tree').fit(norm).kneighbors(norm)
+    U = low_rank_approx(U, s, Vh)
+    norm = preprocessing.normalize(U, norm='l2')
+    distances, indices = NearestNeighbors().fit(norm).kneighbors(norm)
+    feature_names = cv.get_feature_names()
+    positives = populate_positive()
+    negatives = populate_positive()
+    for kneib in indices:
+        starting = feature_names[kneib[0]]
+        sentiment = "None"
+        if starting in positives:
+            sentiment = "positive"
+        elif starting in negatives:
+            sentiment = "negative"
+        for i in range(1, len(kneib)):
+            print feature_names[kneib[i]] + " is " + sentiment
 
-    # data = list()
-    # data.append(go.Bar(
-    #     x=x,
-    #     y=y[0],
-    #     name='Positive-Mean'))
-    # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
+            # since each sample will always be closer to it self, the first element of each indices array is the element given
+            # data = list()
+            # data.append(go.Bar(
+            #     x=x,
+            #     y=y[0],
+            #     name='Positive-Mean'))
+            # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
 def analyze():
