@@ -10,6 +10,9 @@ import plotly.offline as offline
 import plotly.graph_objs as go
 from datetime import date, datetime
 
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.neighbors import NearestNeighbors
+
 
 def daydiff(date1, date2):
     return (date2 - date1).days
@@ -22,6 +25,26 @@ def populate_positive():
     for rx in range(1, sh.nrows):
         positives.append(sh.row(rx)[2].value)
     return positives
+
+
+def populate_stopwords():
+    words = list()
+    f = open("stopwords.txt")
+    for rx in f.readlines():
+        if rx != '' and rx != ' ':
+            words.append(rx.decode('utf-8').strip())
+    return words
+
+
+def stopwordrem(string, words):
+    remove = list()
+    for word in string.split(" "):
+        for word2 in words:
+            if word == word2:
+                remove.append(word)
+    for word in remove:
+        string = string.replace(word, '')
+    return string.strip()
 
 
 def populate_negative():
@@ -68,7 +91,7 @@ def text_strip(string):
                     newstr += char
             except ValueError:
                 continue
-    return newstr
+    return newstr.strip()
 
 
 # Remove accent and convert t uppercase. Check the decode function
@@ -79,19 +102,19 @@ def formatter(string):
 
 def suffixremove(string):
     if len(string) < 4:
-        return string
+        return string.strip()
 
     if string.endswith(u"ΟΥΣ") or string.endswith(u"ΕΙΣ") or string.endswith(u"ΕΩΝ") or string.endswith(u"ΟΥΝ"):
-        return string[:len(string) - 3]
+        return (string[:len(string) - 3]).strip()
     elif string.endswith(u"ΟΣ") or string.endswith(u"ΗΣ") or string.endswith(u"ΕΣ") or string.endswith(u"ΩΝ") \
             or string.endswith(u"ΟΥ") or string.endswith(u"ΟΙ") or string.endswith(u"ΑΣ") or string.endswith(
         u"ΩΣ") or string.endswith(u"ΑΙ") or string.endswith(u"ΥΣ") or string.endswith(u"ΟΝ") or string.endswith(u"ΑΝ") \
             or string.endswith(u"ΕΙ"):
-        return string[:len(string) - 2]
+        return (string[:len(string) - 2]).strip()
     elif string.endswith(u"Α") or string.endswith(u"Η") or string.endswith(u"Ο") or string.endswith(u"Ε") or \
             string.endswith(u"Ω") or string.endswith(u"Υ") or string.endswith(u"Ι"):
-        return string[:len(string) - 1]
-    return string
+        return (string[:len(string) - 1]).strip()
+    return string.strip()
 
 
 # Remove accent and convert t uppercase. Check the decode function
@@ -102,7 +125,7 @@ def suffix_remover(string):
         if stri != ' ' and stri != '':
             newstr += suffixremove(stri.strip()) + ' '
 
-    return newstr
+    return newstr.strip()
 
 
 def extract_categories(string):
@@ -278,8 +301,11 @@ def proc():
     rows = list()
     for row in cursor:
         rows.insert(0, row)
+    stopwords = populate_stopwords()
     for row in rows:
-        cursor.execute(uppercase, {'_id': row[0], '_text': suffix_remover(formatter(text_strip(row[1]))).strip()})
+        cursor.execute(uppercase,
+                       {'_id': row[0],
+                        '_text': suffix_remover(stopwordrem(formatter(text_strip(row[1])), stopwords)).strip()})
 
     cnx.commit()
     cursor.close()
@@ -500,18 +526,47 @@ def weekly():
     offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
+def svd():
+    cnx = db_connection()
+    cursor = cnx.cursor(buffered=True)
+    query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
+    cursor.execute(query)
+    rows = list()
+    i = 0
+    for row in cursor:
+        if i > 1000:
+            break
+        rows.append(row[0])
+        i += 1
+    cv = CountVectorizer(min_df=2)
+    X = cv.fit_transform(rows)
+    U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
+    print numpy.dot(U, numpy.dot(numpy.diag(s), Vh))
+    norm = numpy.linalg.norm(U)
+    print NearestNeighbors(n_neighbors=5, algorithm='ball_tree').fit(norm).kneighbors(norm)
+
+    # data = list()
+    # data.append(go.Bar(
+    #     x=x,
+    #     y=y[0],
+    #     name='Positive-Mean'))
+    # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
+
+
 def analyze():
     while True:
         choice = easygui.buttonbox(
             "There are several analysis options\n" +
             "1: Frequency: choose a category to display frequency for each date",
-            choices=("Frequency", "Amount", "Weekly", "back"))
+            choices=("Frequency", "Amount", "Weekly", "SVD", "back"))
         if choice is "Frequency":
             frequency()
         elif choice is "Amount":
             dailyamount()
         elif choice is "Weekly":
             weekly()
+        elif choice is "SVD":
+            svd()
         else:
             return
 
