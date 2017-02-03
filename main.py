@@ -8,8 +8,9 @@ import numpy
 import easygui
 import plotly.offline as offline
 import plotly.graph_objs as go
-from datetime import date, datetime
-
+import os
+from datetime import date
+from easygui import integerbox
 from sklearn import preprocessing
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.neighbors import NearestNeighbors
@@ -568,45 +569,75 @@ def low_rank_approx(u, s, v, r=300):
     return Ar
 
 
-def svd(p=2):
+def svd(p=1):
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
     query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
+    print "Retrieving data..."
     cursor.execute(query)
     rows = list()
-    i = 0
+
     for row in cursor:
-        if i > 1000:
-            break
         rows.append(row[0])
-        i += 1
+    choice = integerbox(msg="Tweets available: " + str(len(rows)) + " . Please do keep in mind that the " +
+                            "higher the number, the longer it will take to process them. Choose 0 to process all",
+                        lowerbound=0,
+                        upperbound=len(rows))
+    while len(rows) != choice:
+        rows = rows[0:choice]
+    p = integerbox(msg="Set Neighbor count", lowerbound=1)
+    print "Using the count vectorizer for frequencies..."
     cv = CountVectorizer(min_df=2, max_df=len(rows) * 4, lowercase=False)
     X = cv.fit_transform(rows)
+    print "Running SVD..."
     U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
     # U = low_rank_approx(U, s, Vh)
+    print "Normalizing data..."
     norm = preprocessing.normalize(U, norm='l2')
     # always +1 because we need to remove the first element which is the element given
+    print "Getting nearest Neighbors..."
     distances, indices = NearestNeighbors(n_neighbors=p + 1).fit(norm).kneighbors(norm)
     feature_names = cv.get_feature_names()
     positives = populate_positive()
     negatives = populate_negative()
     npositives = list()
     nnegatives = list()
+    np = 0
+    nn = 0
+    total = 0
+    print "Extracting results..."
+    if not os.path.exists("Ext"):
+        os.makedirs("Ext")
     for kneib in indices:
         starting = feature_names[kneib[0]]
-        sentiment = "None"
+        total += len(kneib) - 1
         if starting in positives:
-            f = open("ExtPos_" + starting, "w")
+            f = open("Ext/ExtPos_" + starting, "w")
             for i in range(1, len(kneib)):
                 f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
-                # if feature_names[kneib[i]] not in npositives:
-                #     npositives.append(feature_names[kneib[i]])
+                if feature_names[kneib[i]] in positives:
+                    np += 1
+                else:
+                    if feature_names[kneib[i]] not in npositives:
+                        npositives.append(feature_names[kneib[i]])
         elif starting in negatives:
-            f = open("ExtNeg_" + starting, "w")
+            f = open("Ext/ExtNeg_" + starting, "w")
             for i in range(1, len(kneib)):
                 f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
-                # if feature_names[kneib[i]] not in nnegatives:
-                #     nnegatives.append(feature_names[kneib[i]])
+                if feature_names[kneib[i]] in negatives:
+                    nn += 1
+                else:
+                    if feature_names[kneib[i]] not in nnegatives:
+                        nnegatives.append(feature_names[kneib[i]])
+    print "-----------Process Completed with the following results-----------"
+    print "mean NP:" + str(np / float(total))
+    print "mean NN:" + str(nn / float(total))
+    print "New Positives:"
+    for positive in npositives:
+        print positive
+    print "New Negatives:"
+    for negative in nnegatives:
+        print negative
 
 
 def analyze():
