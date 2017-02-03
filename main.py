@@ -534,7 +534,7 @@ def low_rank_approx(u, s, v, r=300):
     return Ar
 
 
-def svd():
+def svd(p=2):
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
     query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
@@ -542,36 +542,44 @@ def svd():
     rows = list()
     i = 0
     for row in cursor:
-        # if i > 1000:
-        #     break
+        if i > 1000:
+            break
         rows.append(row[0])
         i += 1
     cv = CountVectorizer(min_df=2, max_df=len(rows) * 4, lowercase=False)
     X = cv.fit_transform(rows)
     U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
-    U = low_rank_approx(U, s, Vh)
+    # U = low_rank_approx(U, s, Vh)
     norm = preprocessing.normalize(U, norm='l2')
-    distances, indices = NearestNeighbors().fit(norm).kneighbors(norm)
+    # always +1 because we need to remove the first element which is the element given
+    distances, indices = NearestNeighbors(n_neighbors=p + 1).fit(norm).kneighbors(norm)
     feature_names = cv.get_feature_names()
     positives = populate_positive()
-    negatives = populate_positive()
+    negatives = populate_negative()
+    npositives = list()
+    nnegatives = list()
     for kneib in indices:
         starting = feature_names[kneib[0]]
         sentiment = "None"
         if starting in positives:
-            sentiment = "positive"
+            f = open("ExtPos_" + starting, "w")
+            for i in range(1, len(kneib)):
+                f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
+                # if feature_names[kneib[i]] not in npositives:
+                #     npositives.append(feature_names[kneib[i]])
         elif starting in negatives:
-            sentiment = "negative"
-        for i in range(1, len(kneib)):
-            print feature_names[kneib[i]] + " is " + sentiment
-
-            # since each sample will always be closer to it self, the first element of each indices array is the element given
-            # data = list()
-            # data.append(go.Bar(
-            #     x=x,
-            #     y=y[0],
-            #     name='Positive-Mean'))
-            # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
+            f = open("ExtNeg_" + starting, "w")
+            for i in range(1, len(kneib)):
+                f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
+                # if feature_names[kneib[i]] not in nnegatives:
+                #     nnegatives.append(feature_names[kneib[i]])
+                # since each sample will always be closer to it self, the first element of each indices array is the element given
+                # data = list()
+                # data.append(go.Bar(
+                #     x=x,
+                #     y=y[0],
+                #     name='Positive-Mean'))
+                # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
 def analyze():
