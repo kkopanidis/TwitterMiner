@@ -443,22 +443,49 @@ def dailyamount():
     offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
 
 
+def getstored(choice):
+    cnx = db_connection()
+    cursor = cnx.cursor(buffered=True)
+    query = "SELECT mean_positive, mean_negative, dev_pos, dev_neg, calculated_weeks.from, calculated_weeks.until," \
+            " total_tweets FROM calculated_weeks WHERE category=\'" + choice + "\' ORDER BY calculated_weeks.from"
+    cursor.execute(query)
+    x = list()
+    y = [list(), list(), list(), list()]
+    for yi in y:
+        yi.append(0)
+    last = None
+    for row in cursor:
+        last = row[5]
+        x.append(
+            str(row[4].day) + ' - ' + str(row[5].day) + "/" + str(row[5].month) + "/" + str(
+                row[5].year) + "\nTotal Tweets: " + str(row[6]))
+        y[0][len(y[0]) - 1] = float(row[0])
+        y[1][len(y[0]) - 1] = float(row[1])
+        y[2][len(y[1]) - 1] = float(row[2])
+        y[3][len(y[1]) - 1] = float(row[3])
+        for yi in y:
+            yi.append(0)
+    return x, y, last
+
+
 def weekly():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
     choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
-    query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
+
+    x, y, last = getstored(choice)
+    if last is not None:
+        query = "SELECT DISTINCT date FROM tweet_data WHERE date > \'" + last.strftime(
+            "%Y-%m-%d %H:%M:%S") + "\'ORDER BY DATE"
+    else:
+        query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
     cursor.execute(query)
     dates = list()
     for row in cursor:
         dates.append(row[0])
     cursor.close()
-    x = list()
-    y = [list(), list(), list(), list()]
     startdate = ''
     total = 0
-    for yi in y:
-        yi.append(0)
     positives = list()
     negatives = list()
     for date1 in dates:
@@ -473,14 +500,21 @@ def weekly():
             x.append(
                 str(startdate.day) + ' - ' + str(date1.day) + "/" + str(date1.month) + "/" + str(
                     date1.year) + "\nTotal Tweets: " + str(total))
-            startdate = date1
-            total = 0
 
             y[0][len(y[0]) - 1] = numpy.mean(positives)
             y[1][len(y[0]) - 1] = numpy.mean(negatives)
             y[2][len(y[1]) - 1] = numpy.std(positives)
             y[3][len(y[1]) - 1] = numpy.std(negatives)
-
+            add_tweet = ("INSERT INTO calculated_weeks "
+                         "(mean_positive, mean_negative, dev_pos, dev_neg, calculated_weeks.from, "
+                         "calculated_weeks.until, total_tweets,category) "
+                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)")
+            cursor.execute(add_tweet,
+                           (float(y[0][len(y[0]) - 1]), float(y[1][len(y[0]) - 1]), float(y[2][len(y[1]) - 1]),
+                            float(y[3][len(y[1]) - 1]), startdate, date1, total, choice))
+            cnx.commit()
+            startdate = date1
+            total = 0
             positives = list()
             negatives = list()
             for yi in y:
@@ -488,11 +522,11 @@ def weekly():
         positives.append(0)
         negatives.append(0)
         for row in cursor:
-            total += 1
             positive = False
             if row[0] >= row[1]:
                 positive = True
             if choice in row[2]:
+                total += 1
                 if positive:
                     positives[len(positives) - 1] += 1
 
@@ -502,9 +536,9 @@ def weekly():
 
     if total != 0:
         y[0].pop(len(y[0]) - 1)
-        y[1].pop(len(y[0]) - 1)
-        y[2].pop(len(y[0]) - 1)
-        y[3].pop(len(y[0]) - 1)
+        y[1].pop(len(y[0]))
+        y[2].pop(len(y[0]))
+        y[3].pop(len(y[0]))
 
     data = list()
     data.append(go.Bar(
@@ -573,13 +607,6 @@ def svd(p=2):
                 f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
                 # if feature_names[kneib[i]] not in nnegatives:
                 #     nnegatives.append(feature_names[kneib[i]])
-                # since each sample will always be closer to it self, the first element of each indices array is the element given
-                # data = list()
-                # data.append(go.Bar(
-                #     x=x,
-                #     y=y[0],
-                #     name='Positive-Mean'))
-                # offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
 def analyze():
