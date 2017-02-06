@@ -560,24 +560,7 @@ def weekly():
     offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
-def svd():
-    cnx = db_connection()
-    cursor = cnx.cursor(buffered=True)
-    query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
-    print "Retrieving data..."
-    cursor.execute(query)
-    rows = list()
-    for row in cursor:
-        rows.append(row[0])
-    choice = integerbox(msg="Tweets available: " + str(len(rows)) + " . Please do keep in mind that the " +
-                            "higher the number, the longer it will take to process them."
-                            " Choose 0 to process all.",
-                        lowerbound=0,
-                        upperbound=len(rows))
-    if choice != 0:
-        while len(rows) != choice:
-            rows = rows[0:choice]
-    p = integerbox(msg="Set Neighbor count", lowerbound=1)
+def actualsvd(rows):
     print "Using the count vectorizer for frequencies..."
     # Retrieve terms that appear in more than 2 documents
     cv = CountVectorizer(min_df=2, max_df=len(rows) * 4, lowercase=False)
@@ -590,6 +573,10 @@ def svd():
     print "Normalizing data..."
     # Normalize using l^2 (l2) the euclidean norm
     norm = preprocessing.normalize(U, norm='l2')
+    return norm, cv
+
+
+def neib(p, norm, cv):
     # always +1 because we need to remove the first element which is the element given
     print "Getting nearest Neighbors..."
     distances, indices = NearestNeighbors(n_neighbors=p + 1).fit(norm).kneighbors(norm)
@@ -647,6 +634,31 @@ def svd():
     print "--New Negatives:"
     for negative in nnegatives:
         print negative
+
+
+def svd():
+    cnx = db_connection()
+    cursor = cnx.cursor(buffered=True)
+    query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
+    print "Retrieving data..."
+    cursor.execute(query)
+    rows = list()
+    for row in cursor:
+        rows.append(row[0])
+    choice = integerbox(msg="Tweets available: " + str(len(rows)) + " . Please do keep in mind that the " +
+                            "higher the number, the longer it will take to process them."
+                            " Choose 0 to process all.",
+                        lowerbound=0,
+                        upperbound=len(rows))
+    if choice != 0:
+        while len(rows) != choice:
+            rows = rows[0:choice]
+    norm, cv = actualsvd(rows)
+    while True:
+        p = integerbox(msg="Set Neighbor count. Set 0 to exit", lowerbound=0)
+        if p == 0:
+            break
+        neib(p, norm, cv)
 
 
 def analyze():
