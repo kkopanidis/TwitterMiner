@@ -326,8 +326,10 @@ def proc():
 def frequency():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
-
-    choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
+    choices = ["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"]
+    choice = easygui.choicebox("Choose a category", choices=choices)
+    if choice not in choices:
+        return
     # Retrieve all days
     query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
     cursor.execute(query)
@@ -470,8 +472,10 @@ def getstored(choice):
 def weekly():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
-    choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
-
+    choices = ["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"]
+    choice = easygui.choicebox("Choose a category", choices=choices)
+    if choice not in choices:
+        return
     x, y, last = getstored(choice)
     if last is not None:
         query = "SELECT DISTINCT date FROM tweet_data WHERE date > \'" + last.strftime(
@@ -650,13 +654,15 @@ def svd():
                             " Choose 0 to process all.",
                         lowerbound=0,
                         upperbound=len(rows))
+    if choice is None:
+        return
     if choice != 0:
         while len(rows) != choice:
             rows = rows[0:choice]
     norm, cv = actualsvd(rows)
     while True:
         p = integerbox(msg="Set Neighbor count. Set 0 to exit", lowerbound=0)
-        if p == 0:
+        if p is None or p == 0:
             break
         neib(p, norm, cv)
 
