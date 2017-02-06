@@ -16,10 +16,12 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.neighbors import NearestNeighbors
 
 
+# Calculate the day difference between 2 dates.
 def daydiff(date1, date2):
     return (date2 - date1).days
 
 
+# Populate an array that contains positive word stems
 def populate_positive():
     positives = list()
     book = xlrd.open_workbook("PosLex.xls")
@@ -29,6 +31,17 @@ def populate_positive():
     return positives
 
 
+# Populate an array that contains negative word stems
+def populate_negative():
+    negatives = list()
+    book = xlrd.open_workbook("NegLex.xls")
+    sh = book.sheet_by_index(0)
+    for rx in range(1, sh.nrows):
+        negatives.append(sh.row(rx)[2].value)
+    return negatives
+
+
+# Populate an array that contains stopword word stems
 def populate_stopwords():
     words = list()
     f = open("stopwords.txt")
@@ -38,6 +51,7 @@ def populate_stopwords():
     return words
 
 
+# Stopword removal from the text
 def stopwordrem(string, words):
     remove = list()
     for word in string.split(" "):
@@ -49,15 +63,7 @@ def stopwordrem(string, words):
     return string.strip()
 
 
-def populate_negative():
-    negatives = list()
-    book = xlrd.open_workbook("NegLex.xls")
-    sh = book.sheet_by_index(0)
-    for rx in range(1, sh.nrows):
-        negatives.append(sh.row(rx)[2].value)
-    return negatives
-
-
+# Given a sentiment list, extract the number of occurrences
 def extract_sentiment(string, sentiment):
     count = 0
     for word in sentiment:
@@ -82,6 +88,7 @@ def greek_recognizer(string):
     return False
 
 
+# Extract only greek characters and remove all special symbols
 def text_strip(string):
     newstr = ''
     for char in string:
@@ -102,6 +109,7 @@ def formatter(string):
                    if unicodedata.category(c) != 'Mn')
 
 
+# Stem all words in the given text
 def suffixremove(string):
     if len(string) < 4:
         return string.strip()
@@ -130,6 +138,7 @@ def suffix_remover(string):
     return newstr.strip()
 
 
+# Find the categories that this tweet should be included in
 def extract_categories(string):
     hashtags = ["#ND", "#SYRIZA", "@atsipras", "@mitsotakis"]
     categories = ''
@@ -147,17 +156,16 @@ def handle_limit(cursor):
         except tweepy.error.TweepError:
             time.sleep(15 * 60)
 
-            # Replace the data below with your own connection settings
-
 
 def db_connection():
+    # Replace the data below with your own connection settings
     return mysql.connector.connect(user='root', password='root',
                                    host='127.0.0.1',
                                    database='tweets')
 
 
 def mine():
-    # access settings for tweeter
+    # access settings for twitter
     auth = tweepy.OAuthHandler("4AvlgKXr073UYo0qy7NlYAk7J", "yvep2vscsGSvnBTUcqUqTdvT97dyYB8zRY6VNJNVULDcEaGEuk")
     auth.set_access_token("490652039-nzZWjVbS8GheGc1Gh3PL0RKndoNitiJsu1PnSFUk",
                           "RkCCI3SFyj0si7MJ2kXpG5jf5bQWkmXoitoKRcsQITtyb")
@@ -187,41 +195,23 @@ def mine():
         last_id = id[0]
     cursor.close()
     cursor = cnx.cursor()
-
     # Iterate through hashtags
     for hash_ in end:
         for tweet in handle_limit(tweepy.Cursor(api.search, q=hash_, include_entities=True).items()):
-            # If there are tweets in db
-            if last_id is not "":
-                # check that you only store newer tweets
-                if tweet.id > last_id:
-                    # if tweet is not already saved during this session
-                    if tweet.id not in ids:
-                        if greek_recognizer(tweet.text):
-                            try:
-                                cursor.execute(add_tweet,
-                                               (tweet.text, date(tweet.created_at.year, tweet.created_at.month,
-                                                                 tweet.created_at.day), tweet.id))
-                                ids.append(tweet.id)
-                            except mysql.connector.DatabaseError:
-                                try:
-                                    cursor.execute(add_tweet,
-                                                   (tweet.text.encode('utf-8'),
-                                                    date(tweet.created_at.year, tweet.created_at.month,
-                                                         tweet.created_at.day), tweet.id))
-                                    ids.append(tweet.id)
-                                except mysql.connector.DatabaseError:
-                                    print "String not in utf"
-                else:
-                    break
+            # If there are tweets in dbcheck that you only store newer tweets
+            if last_id is not "" and tweet.id <= last_id:
+                break
             # if tweet is not already saved during this session
-            elif tweet.id not in ids:
+            if tweet.id not in ids:
+                # if tweet has greek words
                 if greek_recognizer(tweet.text):
                     try:
-                        cursor.execute(add_tweet, (tweet.text, date(tweet.created_at.year, tweet.created_at.month,
-                                                                    tweet.created_at.day), tweet.id))
+                        cursor.execute(add_tweet,
+                                       (tweet.text, date(tweet.created_at.year, tweet.created_at.month,
+                                                         tweet.created_at.day), tweet.id))
                         ids.append(tweet.id)
                     except mysql.connector.DatabaseError:
+                        # Try to fix encoding issues
                         try:
                             cursor.execute(add_tweet,
                                            (tweet.text.encode('utf-8'),
@@ -231,15 +221,15 @@ def mine():
                         except mysql.connector.DatabaseError:
                             print "String not in utf"
             else:
-                break
+                continue
     # Commit tweet inserts
     cnx.commit()
-
     # close the connections and free the cursor
     cursor.close()
     cnx.close()
 
 
+# Process stored tweets
 def proc():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
@@ -254,16 +244,16 @@ def proc():
     found = 0
     tweets = list()
     remove = list()
-    unpro = False
+    unprocessed = False
     for row in cursor:
         if row[4] is None:
-            unpro = True
+            unprocessed = True
         if row[1] in tweets:
             found += 1
             remove.insert(0, row[0])
         else:
             tweets.insert(0, row[1])
-    if not unpro:
+    if not unprocessed:
         return
     cursor.close()
     cursor = cnx.cursor(buffered=True)
@@ -288,7 +278,7 @@ def proc():
         rows.insert(0, row)
     cursor.close()
     cursor = cnx.cursor(buffered=True)
-    # Search and count tweets containing emoticons
+    # Remove non-greek tweets
     for row in rows:
         if not greek_recognizer(row[1]):
             cursor.execute(delete_tweet, {'_id': row[0]})
@@ -311,11 +301,13 @@ def proc():
 
     cnx.commit()
     cursor.close()
+
     cursor = cnx.cursor(buffered=True)
     cursor.execute(query)
     uppercase = "UPDATE tweet_data SET tweets.tweet_data.positive =%(_pos)s," \
                 "tweets.tweet_data.negative =%(_neg)s, tweets.tweet_data.categories =%(_cat)s WHERE id = %(_id)s"
     rows = list()
+    # Populate the positive/negative word lists
     positive = populate_positive()
     negative = populate_negative()
     for row in cursor:
@@ -330,12 +322,13 @@ def proc():
     cursor.close()
 
 
+# Calculate frequencies
 def frequency():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
 
     choice = easygui.choicebox("Choose a category", choices=["#SYRIZA", "#ND", "@atsipras", "@mitsotakis"])
-
+    # Retrieve all days
     query = "SELECT DISTINCT date FROM tweet_data ORDER BY date"
     cursor.execute(query)
     dates = list()
@@ -345,6 +338,8 @@ def frequency():
     x = list()
     y = list()
     y1 = list()
+    processed = 0
+    # For each day
     for date1 in dates:
         x.append(date1)
         cursor = cnx.cursor(buffered=True)
@@ -358,6 +353,7 @@ def frequency():
             positive += row[0]
             negative += row[1]
             rowcount += 1
+            processed += 1
         if cursor.rowcount != 0:
             y.append((positive / float(cursor.rowcount)))
             y1.append(negative / float(cursor.rowcount))
@@ -377,7 +373,7 @@ def frequency():
     trace1 = go.Scatter(
         x=x,
         y=y1,
-        name='Negatice',
+        name='Negative',
         line=dict(
             color=('rgb(22,96,167)'),
             width=4
@@ -385,7 +381,8 @@ def frequency():
     )
     data = [trace0, trace1]
 
-    offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
+    offline.plot(
+        {'data': data, 'layout': {'title': choice + "-Total Tweets: " + str(processed), 'font': dict(size=16)}})
 
 
 def dailyamount():
@@ -441,9 +438,10 @@ def dailyamount():
             name='Negative-' + choices[i]))
         i += 1
 
-    offline.plot({'data': data, 'layout': {'title': 'Test Plot', 'font': dict(size=16)}})
+    offline.plot({'data': data, 'layout': {'title': 'Amount per Category', 'font': dict(size=16)}})
 
 
+# Retrieve stored weekly analysis results
 def getstored(choice):
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
@@ -562,65 +560,76 @@ def weekly():
     offline.plot({'data': data, 'layout': {'title': 'Weekly Summary' + choice, 'font': dict(size=16)}})
 
 
-def low_rank_approx(u, s, v, r=300):
-    Ar = numpy.zeros((len(u), len(v)))
-    for i in xrange(r):
-        Ar += s[i] * numpy.outer(u.T[i], v[i])
-    return Ar
-
-
-def svd(p=1):
+def svd():
     cnx = db_connection()
     cursor = cnx.cursor(buffered=True)
     query = "SELECT cleaned_text FROM tweet_data ORDER BY date"
     print "Retrieving data..."
     cursor.execute(query)
     rows = list()
-
     for row in cursor:
         rows.append(row[0])
     choice = integerbox(msg="Tweets available: " + str(len(rows)) + " . Please do keep in mind that the " +
-                            "higher the number, the longer it will take to process them. Choose 0 to process all",
+                            "higher the number, the longer it will take to process them."
+                            " Choose 0 to process all.",
                         lowerbound=0,
                         upperbound=len(rows))
-    while len(rows) != choice:
-        rows = rows[0:choice]
+    if choice != 0:
+        while len(rows) != choice:
+            rows = rows[0:choice]
     p = integerbox(msg="Set Neighbor count", lowerbound=1)
     print "Using the count vectorizer for frequencies..."
+    # Retrieve terms that appear in more than 2 documents
     cv = CountVectorizer(min_df=2, max_df=len(rows) * 4, lowercase=False)
     X = cv.fit_transform(rows)
     print "Running SVD..."
     U, s, Vh = numpy.linalg.svd(X.toarray().T, full_matrices=False)
-    # U = low_rank_approx(U, s, Vh)
+    print "Calculating approximation rank..."
+    # Keep the first 100 columns
+    U = U[:, :100]
     print "Normalizing data..."
+    # Normalize using l^2 (l2) the euclidean norm
     norm = preprocessing.normalize(U, norm='l2')
     # always +1 because we need to remove the first element which is the element given
     print "Getting nearest Neighbors..."
     distances, indices = NearestNeighbors(n_neighbors=p + 1).fit(norm).kneighbors(norm)
+    # get the feature names so that we can extract data in a readable manner
     feature_names = cv.get_feature_names()
+    # positive/negative word lists
     positives = populate_positive()
     negatives = populate_negative()
+    # new positives and new negatives lists
     npositives = list()
     nnegatives = list()
+    # counters that keep track of the positive and negative words that were found, and exist in the
+    # starting lists as well
     np = 0
     nn = 0
-    total = 0
+    # Total words on the ext files
+    totalp = 0
+    totaln = 0
     print "Extracting results..."
     if not os.path.exists("Ext"):
         os.makedirs("Ext")
     for kneib in indices:
+        # The starting point
         starting = feature_names[kneib[0]]
-        total += len(kneib) - 1
         if starting in positives:
+            # total positives is increased by the count of the remaining points
+            totalp += len(kneib) - 1
             f = open("Ext/ExtPos_" + starting, "w")
             for i in range(1, len(kneib)):
+                # write the new word in the ext file
                 f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
+                # if the word belongs in the starting list then increment the counter
                 if feature_names[kneib[i]] in positives:
                     np += 1
                 else:
+                    # if not, and is not already included in the new list, then add it
                     if feature_names[kneib[i]] not in npositives:
                         npositives.append(feature_names[kneib[i]])
         elif starting in negatives:
+            totaln += len(kneib) - 1
             f = open("Ext/ExtNeg_" + starting, "w")
             for i in range(1, len(kneib)):
                 f.write(feature_names[kneib[i]].encode("utf-8") + "\n")
@@ -630,12 +639,12 @@ def svd(p=1):
                     if feature_names[kneib[i]] not in nnegatives:
                         nnegatives.append(feature_names[kneib[i]])
     print "-----------Process Completed with the following results-----------"
-    print "mean NP:" + str(np / float(total))
-    print "mean NN:" + str(nn / float(total))
-    print "New Positives:"
+    print "--mean NP:" + str(np / float(totalp))
+    print "--mean NN:" + str(nn / float(totaln))
+    print "--New Positives:"
     for positive in npositives:
         print positive
-    print "New Negatives:"
+    print "--New Negatives:"
     for negative in nnegatives:
         print negative
 
@@ -644,7 +653,10 @@ def analyze():
     while True:
         choice = easygui.buttonbox(
             "There are several analysis options\n" +
-            "1: Frequency: choose a category to display frequency for each date",
+            "1: Frequency: choose a category to display frequency for each date"
+            "2: Amount: Display the ammount of positive/negative tweets for each category, daily"
+            "3: Weekly: Display weekly results concerning the mean positive/negative tweets and the mean deviation"
+            "4: Run SVD on a particular number of tweets, and extract new positive/negative words and stats",
             choices=("Frequency", "Amount", "Weekly", "SVD", "back"))
         if choice is "Frequency":
             frequency()
